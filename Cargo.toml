@@ -1,11 +1,10 @@
 [package]
 name = "dns-over-websocket"
 description = "Transport-independent DNS over WebSocket protocol"
-version = "0.0.0"
+version = "0.0.1"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/Sn0wo2/dns-over-websocket"
-publish = false
 
 [lints.rust]
 unsafe_code = "forbid"

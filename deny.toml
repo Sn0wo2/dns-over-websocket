@@ -1,11 +1,11 @@
 [graph]
 all-features = true
 
-[advisories]
-ignore = []
-
 [licenses]
 allow = ["Apache-2.0", "MIT", "Unicode-3.0", "Unlicense", "Zlib", "0BSD", "ISC", "BSD-3-Clause"]
+
+[advisories]
+ignore = []
 
 [bans]
 multiple-versions = "warn"
