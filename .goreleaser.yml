@@ -1,0 +1,17 @@
+version: 2
+project_name: dns-over-websocket
+
+builds:
+  - skip: true
+
+archives:
+  - formats: [none]
+
+source:
+  enabled: false
+
+checksum:
+  disable: true
+
+changelog:
+  sort: asc
