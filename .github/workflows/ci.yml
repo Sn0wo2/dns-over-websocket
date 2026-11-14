@@ -19,8 +19,6 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-    outputs:
-      has_library: ${{ steps.metadata.outputs.has_library }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -35,10 +33,6 @@ jobs:
           shared-key: check
           cache-workspace-crates: true
           save-if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
-
-      - name: Collect workspace metadata
-        id: metadata
-        run: node scripts/collect-ci-metadata.js
 
       - name: Apply lint fixes
         continue-on-error: true
@@ -107,6 +101,24 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  audit:
+    name: Audit dependencies
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      - run: cargo audit
+
   geiger:
     name: Unsafe code report
     runs-on: ubuntu-latest
@@ -135,7 +147,6 @@ jobs:
   semver:
     name: Semantic versioning
     needs: check
-    if: needs.check.outputs.has_library == 'true'
     runs-on: ubuntu-latest
     continue-on-error: true
     permissions:
