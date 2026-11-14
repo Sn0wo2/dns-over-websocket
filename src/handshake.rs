@@ -1,6 +1,7 @@
-use subtle::{Choice, ConstantTimeEq};
+use subtle::Choice;
 
-use crate::{PATH as DEFAULT_PATH, SUBPROTOCOL};
+use crate::utils::constant_time_eq_unique;
+use crate::{PATH, SUBPROTOCOL};
 
 #[derive(Clone, Default)]
 #[allow(clippy::exhaustive_structs)]
@@ -58,7 +59,7 @@ pub fn validate_server_request(
     auth: &Auth,
     request: &Request<'_>,
 ) -> Result<(), ServerHandshakeError> {
-    if request.path != auth.path.as_deref().unwrap_or(DEFAULT_PATH) {
+    if request.path != auth.path.as_deref().unwrap_or(PATH) {
         return Err(ServerHandshakeError::NotFound);
     }
 
@@ -72,34 +73,25 @@ pub fn validate_server_request(
             .collect::<Vec<_>>();
 
         for (name, expected) in &auth.query {
-            let mut count = 0_usize;
-            let mut value = "";
-            for (candidate_name, candidate_value) in &query {
-                if candidate_name.as_ref() == name.as_str() {
-                    if count == 0 {
-                        value = candidate_value.as_ref();
-                    }
-                    count = count.saturating_add(1);
-                }
-            }
-            matched &= value.as_bytes().ct_eq(expected.as_bytes());
-            matched &= Choice::from(u8::from(count == 1));
+            matched &= constant_time_eq_unique(
+                query
+                    .iter()
+                    .filter(|(candidate, _)| candidate.as_ref() == name)
+                    .map(|(_, value)| value.as_ref()),
+                expected,
+            );
         }
     }
 
     for (name, expected) in &auth.headers {
-        let mut count = 0_usize;
-        let mut value = "";
-        for (candidate_name, candidate_value) in request.headers {
-            if candidate_name.eq_ignore_ascii_case(name) {
-                if count == 0 {
-                    value = *candidate_value;
-                }
-                count = count.saturating_add(1);
-            }
-        }
-        matched &= value.as_bytes().ct_eq(expected.as_bytes());
-        matched &= Choice::from(u8::from(count == 1));
+        matched &= constant_time_eq_unique(
+            request
+                .headers
+                .iter()
+                .filter(|(candidate, _)| candidate.eq_ignore_ascii_case(name))
+                .map(|(_, value)| *value),
+            expected,
+        );
     }
 
     if !bool::from(matched) {
@@ -108,10 +100,9 @@ pub fn validate_server_request(
 
     if !request.headers.iter().any(|(name, value)| {
         name.eq_ignore_ascii_case("sec-websocket-protocol")
-            && value.split(',').any(|protocol| {
-                protocol.trim_matches(|character| character == ' ' || character == '\t')
-                    == SUBPROTOCOL
-            })
+            && value
+                .split(',')
+                .any(|protocol| protocol.trim_matches([' ', '\t']) == SUBPROTOCOL)
     }) {
         return Err(ServerHandshakeError::UnsupportedProtocol);
     }
@@ -120,19 +111,14 @@ pub fn validate_server_request(
 }
 
 pub fn validate_client_response(headers: &[(&str, &str)]) -> Result<(), ClientHandshakeError> {
-    let mut selected = None;
-    for (name, value) in headers {
-        if name.eq_ignore_ascii_case("sec-websocket-protocol") {
-            if selected.is_some() {
-                return Err(ClientHandshakeError::InvalidProtocol);
-            }
-            selected = Some(*value);
-        }
-    }
+    let mut protocols = headers
+        .iter()
+        .filter(|(name, _)| name.eq_ignore_ascii_case("sec-websocket-protocol"))
+        .map(|(_, value)| *value);
 
-    match selected {
-        None => Err(ClientHandshakeError::MissingProtocol),
-        Some(SUBPROTOCOL) => Ok(()),
-        Some(_) => Err(ClientHandshakeError::InvalidProtocol),
+    match (protocols.next(), protocols.next()) {
+        (None, _) => Err(ClientHandshakeError::MissingProtocol),
+        (Some(SUBPROTOCOL), None) => Ok(()),
+        _ => Err(ClientHandshakeError::InvalidProtocol),
     }
 }

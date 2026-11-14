@@ -1,35 +1,25 @@
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize};
-use std::fmt;
 
 use crate::MAX_DNS_BYTES;
 use crate::utils::{decode_dns, validate_dns};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 #[allow(clippy::exhaustive_enums)]
 pub enum Error {
+    #[error("invalid protocol message")]
     InvalidMessage,
+    #[error("invalid DNS message")]
     InvalidDns,
+    #[error("request ID is already pending")]
     DuplicateId,
+    #[error("request ID is not pending")]
     UnknownId,
+    #[error("pending request limit reached")]
     Capacity,
+    #[error("invalid DNS message size limit")]
     InvalidLimit,
 }
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::InvalidMessage => "invalid protocol message",
-            Self::InvalidDns => "invalid DNS message",
-            Self::DuplicateId => "request ID is already pending",
-            Self::UnknownId => "request ID is not pending",
-            Self::Capacity => "pending request limit reached",
-            Self::InvalidLimit => "invalid DNS message size limit",
-        })
-    }
-}
-
-impl std::error::Error for Error {}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -124,37 +114,36 @@ impl Response {
     }
 
     pub fn from_text(text: &str) -> Result<Self, Error> {
-        let wire = serde_json::from_str(text).map_err(|_| Error::InvalidMessage)?;
-        Ok(match wire {
-            WireResponse::Success { id, dns } => Self::Success {
+        match serde_json::from_str(text).map_err(|_| Error::InvalidMessage)? {
+            WireResponse::Success { id, dns } => Ok(Self::Success {
                 id,
                 dns: decode_dns(&dns, MAX_DNS_BYTES, true)?,
-            },
-            WireResponse::InvalidQuery { id } => Self::Failure {
+            }),
+            WireResponse::InvalidQuery { id } => Ok(Self::Failure {
                 id,
                 status: Status::InvalidQuery,
-            },
-            WireResponse::UpstreamFailure { id } => Self::Failure {
+            }),
+            WireResponse::UpstreamFailure { id } => Ok(Self::Failure {
                 id,
                 status: Status::UpstreamFailure,
-            },
-            WireResponse::Timeout { id } => Self::Failure {
+            }),
+            WireResponse::Timeout { id } => Ok(Self::Failure {
                 id,
                 status: Status::Timeout,
-            },
-            WireResponse::Overloaded { id } => Self::Failure {
+            }),
+            WireResponse::Overloaded { id } => Ok(Self::Failure {
                 id,
                 status: Status::Overloaded,
-            },
-            WireResponse::InternalError { id } => Self::Failure {
+            }),
+            WireResponse::InternalError { id } => Ok(Self::Failure {
                 id,
                 status: Status::InternalError,
-            },
-        })
+            }),
+        }
     }
 
     pub fn to_text(&self) -> Result<String, Error> {
-        let wire = match self {
+        serde_json::to_string(&match self {
             Self::Success { id, dns } => {
                 validate_dns(dns, true)?;
                 WireResponse::Success {
@@ -169,7 +158,7 @@ impl Response {
                 Status::Overloaded => WireResponse::Overloaded { id: *id },
                 Status::InternalError => WireResponse::InternalError { id: *id },
             },
-        };
-        serde_json::to_string(&wire).map_err(|_| Error::InvalidMessage)
+        })
+        .map_err(|_| Error::InvalidMessage)
     }
 }

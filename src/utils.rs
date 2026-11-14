@@ -1,8 +1,21 @@
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use domain::base::{Message, ParsedName};
 use domain::rdata::AllRecordData;
+use subtle::{Choice, ConstantTimeEq};
 
 use crate::{Error, MAX_DNS_BYTES};
+
+pub(crate) fn constant_time_eq_unique<'a>(
+    mut values: impl Iterator<Item = &'a str>,
+    expected: &str,
+) -> Choice {
+    let value = values.next();
+    value
+        .unwrap_or_default()
+        .as_bytes()
+        .ct_eq(expected.as_bytes())
+        & Choice::from(u8::from(value.is_some() && values.next().is_none()))
+}
 
 pub fn validate_dns(bytes: &[u8], response: bool) -> Result<(), Error> {
     if !(12..=MAX_DNS_BYTES).contains(&bytes.len()) {
@@ -12,10 +25,11 @@ pub fn validate_dns(bytes: &[u8], response: bool) -> Result<(), Error> {
     if message.header().qr() != response {
         return Err(Error::InvalidDns);
     }
-    for question in message.question() {
+    let mut questions = message.question();
+    for question in questions.by_ref() {
         question.map_err(|_| Error::InvalidDns)?;
     }
-    let mut section = message.answer().map_err(|_| Error::InvalidDns)?;
+    let mut section = questions.answer().map_err(|_| Error::InvalidDns)?;
     for index in 0..3 {
         for record in section.by_ref() {
             record
